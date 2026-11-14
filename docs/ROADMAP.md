@@ -1,0 +1,44 @@
+# AEGIS Engineering Roadmap
+
+## Release 1.0 — Local simulator MVP (included)
+
+- Interactive dashboard and agent registry
+- Six synthetic agent-security scenarios
+- Deterministic hardened/vulnerable profiles
+- Severity-weighted score and rate metrics
+- Persistent run history and Markdown reports
+- FastAPI REST API, tests, Docker and CI workflow
+
+## Release 1.1 — Evaluation quality
+
+- Scenario IDs with semantic versioning
+- Evaluator contract and per-scenario unit tests
+- Repeat runs, seeds, config snapshots and reproducible benchmark bundles
+- False-positive / false-negative tracking using labelled fixtures
+- CSV and JSON report export
+
+## Release 1.2 — Model adapters
+
+- Provider-neutral adapter interface
+- One local model integration first, then optional hosted providers
+- Timeouts, retry budgets, usage limits and prompt redaction
+- Human-reviewed evaluator outputs; model-graded scores never treated as ground truth
+
+## Release 1.3 — Safe tool simulation
+
+- Allowlisted mock tools with JSON schemas
+- Policy engine for identity, scope, approval and least privilege
+- Tool-call trace and authorization decision audit log
+- Isolated worker process with resource limits
+
+## Release 2.0 — Multi-user platform
+
+- PostgreSQL and Alembic migrations
+- Authentication, RBAC, tenant isolation and audit logging
+- Background job queue and run cancellation
+- Team workspaces, versioned agents and benchmark comparisons
+- Deployment automation, observability and security scanning
+
+## Acceptance standard for a release
+
+Every release should include passing tests, reproducible instructions, documented limitations, a threat-model update, and evidence for any performance or security claim made in its README or resume description.

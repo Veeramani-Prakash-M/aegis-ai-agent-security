@@ -1,0 +1,22 @@
+services:
+  aegis:
+    build: .
+    container_name: aegis-workbench
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/aegis.db
+      APP_ENV: production
+    volumes:
+      - aegis-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  aegis-data:

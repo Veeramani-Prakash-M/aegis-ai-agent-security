@@ -1,0 +1,3 @@
+# Optional driver for PostgreSQL deployments.
+-r requirements.txt
+psycopg[binary]>=3.2,<4
