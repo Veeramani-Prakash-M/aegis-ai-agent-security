@@ -4,10 +4,16 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  if (response.status === 204) return null;
   const contentType = response.headers.get('content-type') || '';
   const payload = contentType.includes('application/json') ? await response.json() : await response.text();
-  if (!response.ok) throw new Error(payload.detail || payload || `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(errorMessage(payload) || `Request failed (${response.status})`);
   return payload;
+}
+function errorMessage(payload) {
+  const detail = payload && typeof payload === 'object' ? payload.detail : payload;
+  if (Array.isArray(detail)) return detail.map(item => `${(item.loc || []).slice(1).join('.') || 'input'}: ${item.msg}`).join('; ');
+  return typeof detail === 'string' ? detail : '';
 }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 2800); }
 function dateLabel(value) { if (!value) return '—'; return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
@@ -40,8 +46,15 @@ function renderAgentSelects() {
 function renderAgents() {
   const root = $('#agent-grid');
   if (!state.agents.length) { root.innerHTML = '<div class="empty-state">No agent profiles. Create one to begin.</div>'; return; }
-  root.innerHTML = state.agents.map(agent => `<article class="agent-card"><div class="agent-card-top"><div class="agent-icon">⌘</div><span class="mode-badge ${agent.mode === 'vulnerable' ? 'vulnerable' : ''}">${agent.mode.toUpperCase()}</span></div><h3>${safe(agent.name)}</h3><p>${safe(agent.description || 'No description provided.')}</p><div class="agent-meta"><span>${safe(agent.provider)}</span><span>${agent.allow_tools ? 'MOCK TOOLS ON' : 'NO TOOLS'}</span></div><div class="card-actions"><button class="button secondary" data-agent-run="${agent.id}">Run assessment →</button></div></article>`).join('');
+  root.innerHTML = state.agents.map(agent => `<article class="agent-card"><div class="agent-card-top"><div class="agent-icon">⌘</div><span class="mode-badge ${agent.mode === 'vulnerable' ? 'vulnerable' : ''}">${agent.mode.toUpperCase()}</span></div><h3>${safe(agent.name)}</h3><p>${safe(agent.description || 'No description provided.')}</p><div class="agent-meta"><span>${safe(agent.provider)}</span><span>${agent.allow_tools ? 'MOCK TOOLS ON' : 'NO TOOLS'}</span></div><div class="card-actions"><button class="button secondary" data-agent-run="${agent.id}">Run assessment →</button><button class="button secondary" style="color:#ff8796;border-color:#4a2634" data-agent-delete="${agent.id}" aria-label="Delete ${safe(agent.name)}">Delete</button></div></article>`).join('');
   $$('[data-agent-run]').forEach(button => button.addEventListener('click', () => { $('#modal-agent').value = button.dataset.agentRun; openRunModal(); }));
+  $$('[data-agent-delete]').forEach(button => button.addEventListener('click', () => deleteAgent(Number(button.dataset.agentDelete))));
+}
+async function deleteAgent(id) {
+  const agent = state.agents.find(item => item.id === id);
+  if (!agent || !confirm(`Delete "${agent.name}" and all of its evaluation runs? This cannot be undone.`)) return;
+  try { await api(`/api/agents/${id}`, { method: 'DELETE' }); await loadAll(); toast('Agent deleted.'); }
+  catch (error) { toast(error.message); }
 }
 function renderScenarios() {
   const counts = state.scenarios.reduce((acc, scenario) => (acc[scenario.severity] = (acc[scenario.severity] || 0) + 1, acc), {});
@@ -98,7 +111,7 @@ function showResult(run) {
   state.activeRun = run;
   const metrics = run.metrics;
   $('#result-title').textContent = `Run #${run.id} · ${run.agent_name}`;
-  $('#result-content').innerHTML = `<div class="result-score"><div class="score-number">${run.score.toFixed(1)}<small> / 100</small></div><div><strong>Internal security score</strong><p>${run.vulnerable === 0 ? 'No simulated attack succeeded in this run.' : `${run.vulnerable} simulated attack(s) succeeded. Review remediation guidance below.`}</p></div></div><div class="result-metrics"><div class="result-metric"><small>ATTACK SUCCESS RATE</small><strong>${metrics.attack_success_rate}%</strong></div><div class="result-metric"><small>DEFENSE PASS RATE</small><strong>${metrics.defense_pass_rate}%</strong></div><div class="result-metric"><small>DATA LEAKAGE RATE</small><strong>${metrics.data_leakage_rate}%</strong></div></div><div class="result-list">${run.results.map(r => `<article class="result-item"><div class="result-item-top"><strong>${safe(r.name)} <span style="color:#8293ab;font-weight:400">· ${safe(r.severity)}</span></strong><span class="outcome ${r.outcome.toLowerCase()}">${safe(r.outcome)}</span></div><p>${safe(r.observed_behavior)}</p><p><b>Remediation:</b> ${safe(r.remediation)}</p></article>`).join('')}</div><p style="font-size:9px;color:#71839a;line-height:1.6;margin:12px 0 0">Synthetic simulator result. The score is an internal comparative metric, not an industry certification or proof of real-world security.</p>`;
+  $('#result-content').innerHTML = `<div class="result-score"><div class="score-number">${run.score.toFixed(1)}<small> / 100</small></div><div><strong>Internal security score</strong><p>${run.vulnerable === 0 ? 'No simulated attack succeeded in this run.' : `${run.vulnerable} simulated attack(s) succeeded. Review remediation guidance below.`}</p></div></div><div class="result-metrics"><div class="result-metric"><small>ATTACK SUCCESS RATE</small><strong>${metrics.attack_success_rate}%</strong></div><div class="result-metric"><small>DEFENSE PASS RATE</small><strong>${metrics.defense_pass_rate}%</strong></div><div class="result-metric"><small>DATA LEAKAGE RATE</small><strong>${metrics.data_leakage_rate}%</strong></div></div><div class="result-list">${run.results.map(r => `<article class="result-item"><div class="result-item-top"><strong>${safe(r.name)} <span style="color:#8293ab;font-weight:400">· ${safe(r.severity)}</span></strong><span class="outcome ${r.outcome.toLowerCase()}">${safe(r.outcome)}</span></div><p>${safe(r.observed_behavior)}</p>${r.agent_response ? `<p><b>Agent said:</b> <code style="font:9px monospace;color:#a9bbd2;word-break:break-word">${safe(r.agent_response)}</code></p>` : ''}<p><b>Remediation:</b> ${safe(r.remediation)}</p></article>`).join('')}</div><p style="font-size:9px;color:#71839a;line-height:1.6;margin:12px 0 0">Synthetic simulator result. The score is an internal comparative metric, not an industry certification or proof of real-world security.</p>`;
   $('#result-modal').classList.remove('hidden');
 }
 async function openRunResult(id) { try { const run = await api(`/api/runs/${id}`); showResult(run); } catch (error) { toast(error.message); } }

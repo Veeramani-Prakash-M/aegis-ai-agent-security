@@ -7,10 +7,10 @@ AEGIS is a full-stack, locally runnable workbench for evaluating AI-agent securi
 ## Product capabilities
 
 - **Overview dashboard** — agent count, evaluation history, average score, score trend, and recent activity.
-- **Agent registry** — create profiles in `hardened` or `vulnerable` simulation mode and optionally enable mock tool access.
+- **Agent registry** — create, run and delete profiles in `hardened` or `vulnerable` simulation mode, with optional mock tool access.
 - **Scenario library** — six controlled tests covering direct prompt injection, sensitive data disclosure, unauthorized tool use, unsafe output handling, memory poisoning, and excessive agency.
-- **Evaluation engine** — deterministic scenario execution, per-finding evidence, remediation advice, and severity-weighted metrics.
-- **Evaluation history** — persisted results with detail views and downloadable Markdown reports.
+- **Evaluation engine** — each attack prompt is sent to an agent adapter and an evaluator grades the *actual response* (canary leakage, unauthorized tool calls, unencoded markup, privilege-changing memory writes). Findings include the agent's output, evidence, remediation advice, and severity-weighted metrics.
+- **Evaluation history** — persisted results (tagged with the scenario-library version) with detail views, per-agent filtering and downloadable Markdown reports.
 - **API and interactive docs** — REST API plus FastAPI Swagger UI at `/docs`.
 - **Delivery foundation** — Docker image, Compose file, and GitHub Actions test workflow.
 
@@ -79,7 +79,7 @@ Then open **http://localhost:8000**. The database is stored in the named `aegis-
 pytest -q
 ```
 
-Tests cover health, seeded agents, hardened and vulnerable outcomes, mock-tool permission behavior, invalid input handling, and Markdown report generation.
+Tests cover the evaluators (including false-positive and false-negative fixtures), severity-weighted scoring, hardened and vulnerable outcomes, mock-tool permission behavior, input validation, agent deletion, run filtering, Markdown reports and static asset serving. `tests/test_engine.py` needs no web framework.
 
 ## API overview
 
@@ -89,9 +89,10 @@ Tests cover health, seeded agents, hardened and vulnerable outcomes, mock-tool p
 | GET | `/api/overview` | Dashboard summary and recent activity |
 | GET | `/api/agents` | List agent profiles |
 | POST | `/api/agents` | Create a simulation profile |
+| DELETE | `/api/agents/{id}` | Delete a profile and its runs |
 | GET | `/api/scenarios` | List available test scenarios |
 | POST | `/api/runs` | Execute a selected evaluation |
-| GET | `/api/runs` | List recent evaluation runs |
+| GET | `/api/runs` | List recent runs (`limit`, optional `agent_id`) |
 | GET | `/api/runs/{id}` | Retrieve an evaluation and findings |
 | GET | `/api/runs/{id}/report` | Download a Markdown report |
 
@@ -105,7 +106,7 @@ curl -X POST http://127.0.0.1:8000/api/runs \
 
 ## Metrics and interpretation
 
-- **Security score:** 100 minus severity-weighted simulated risk, normalized to the selected scenarios.
+- **Security score:** 100 minus severity-weighted simulated risk, normalized to the selected scenarios (critical = 5, high = 4, medium = 2, low = 1).
 - **Attack success rate:** percentage of selected scenarios that the simulator marks as successful.
 - **Defense pass rate:** percentage of selected scenarios blocked by the simulation profile.
 - **Data leakage rate:** outcome rate for the data-protection scenario(s).
@@ -122,8 +123,10 @@ These are **AEGIS internal comparison metrics**, not an industry-standard benchm
 │   ├── database.py         # SQLAlchemy engine/session setup
 │   ├── models.py           # Agent and evaluation persistence models
 │   ├── schemas.py          # Request validation
-│   ├── scenarios.py        # Synthetic scenario library
-│   ├── engine.py           # Deterministic evaluation and scoring
+│   ├── scenarios.py        # Synthetic scenario library (versioned)
+│   ├── agents.py           # AgentAdapter protocol + deterministic simulated agent
+│   ├── evaluators.py       # Per-scenario graders that inspect agent output
+│   ├── engine.py           # Orchestration and severity-weighted scoring
 │   └── static/             # Dashboard UI
 ├── docs/
 │   ├── ARCHITECTURE.md

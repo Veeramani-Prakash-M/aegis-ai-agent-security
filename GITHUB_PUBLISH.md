@@ -1,6 +1,6 @@
 # Publish AEGIS to GitHub
 
-The source bundle is ready to publish. Create a new **empty** repository on GitHub named `aegis-ai-agent-security` (do not initialize it with a README, license, or `.gitignore`).
+The repository already exists at <https://github.com/Veeramani-Prakash-M/aegis-ai-agent-security>; changes land through pull requests. To publish this bundle to a different new repository, create a new **empty** repository on GitHub named `aegis-ai-agent-security` (do not initialize it with a README, license, or `.gitignore`).
 
 From this project directory, run:
 

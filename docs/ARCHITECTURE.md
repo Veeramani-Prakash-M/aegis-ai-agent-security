@@ -12,10 +12,12 @@ FastAPI REST layer (/api/*)
           |
           +---- Scenario catalogue (versioned Python data)
           |
-          +---- Evaluation engine
+          +---- Evaluation engine (engine.py)
                     |
-                    +---- deterministic demo-agent behavior
-                    +---- scenario-specific evaluators
+                    +---- AgentAdapter.respond(scenario, prompt) -> AgentResponse
+                    |         (agents.py: deterministic SimulatedAgent)
+                    +---- evaluators[scenario](response) -> (vulnerable, evidence)
+                    |         (evaluators.py: inspects text, tool calls, memory writes)
                     +---- severity-weighted metrics
                     +---- findings + remediation evidence
           |
@@ -37,8 +39,8 @@ EvaluationRun persistence
 
 ## Extension points
 
-- Add `AgentAdapter` protocol for local model adapters.
+- Implement the existing `AgentAdapter` protocol (`app/agents.py`) for local model adapters; the engine and evaluators need no changes.
 - Add sandboxed `ToolAdapter` implementations with allowlisted mock tools.
-- Replace heuristic outcomes with explicit evaluator functions and model-graded evaluations that include human review.
-- Add a `ScenarioVersion` and `EvaluationConfig` record for benchmark reproducibility.
+- Add model-graded evaluations alongside the rule-based evaluators, always with human review.
+- Persist an `EvaluationConfig` snapshot per run (the scenario `LIBRARY_VERSION` is already stored in each run's metrics).
 - Move from SQLite to PostgreSQL and add Alembic migrations for multi-user deployments.

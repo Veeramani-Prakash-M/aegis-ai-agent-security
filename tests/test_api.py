@@ -97,3 +97,64 @@ def test_created_agent_is_persisted_and_listed():
     created = response.json()
     assert created["name"] == "Read-only Evaluation Agent"
     assert any(agent["id"] == created["id"] for agent in client.get("/api/agents").json())
+
+
+def test_health_reports_versions():
+    body = make_client().get("/api/health").json()
+    assert body["version"] and body["scenario_library"]
+
+
+def test_invalid_agent_and_empty_scenario_selection_are_rejected():
+    client = make_client()
+    assert client.post("/api/agents", json={"name": "x"}).status_code == 422
+    assert client.post("/api/agents", json={"name": "Valid name", "mode": "chaotic"}).status_code == 422
+    agent = client.get("/api/agents").json()[0]
+    assert client.post("/api/runs", json={"agent_id": agent["id"], "scenario_ids": []}).status_code == 422
+
+
+def test_run_detail_contains_agent_response_and_metrics():
+    client = make_client()
+    vulnerable = next(a for a in client.get("/api/agents").json() if a["mode"] == "vulnerable")
+    run = client.post("/api/runs", json={"agent_id": vulnerable["id"]}).json()
+    detail = client.get(f"/api/runs/{run['id']}").json()
+    assert detail["metrics"]["library_version"]
+    assert all(result["agent_response"] for result in detail["results"])
+    assert client.get("/api/runs/9999").status_code == 404
+    assert client.get("/api/runs/9999/report").status_code == 404
+
+
+def test_runs_can_be_filtered_by_agent():
+    client = make_client()
+    first, second = client.get("/api/agents").json()
+    client.post("/api/runs", json={"agent_id": first["id"]})
+    client.post("/api/runs", json={"agent_id": second["id"]})
+    only_first = client.get("/api/runs", params={"agent_id": first["id"]}).json()
+    assert len(only_first) == 1 and only_first[0]["agent_id"] == first["id"]
+    assert len(client.get("/api/runs").json()) == 2
+
+
+def test_deleting_an_agent_removes_its_runs():
+    client = make_client()
+    created = client.post("/api/agents", json={"name": "Temporary agent"}).json()
+    client.post("/api/runs", json={"agent_id": created["id"]})
+    assert client.delete(f"/api/agents/{created['id']}").status_code == 204
+    assert all(a["id"] != created["id"] for a in client.get("/api/agents").json())
+    assert client.get("/api/runs", params={"agent_id": created["id"]}).json() == []
+    assert client.delete(f"/api/agents/{created['id']}").status_code == 404
+    assert client.get("/api/overview").status_code == 200
+
+
+def test_report_lists_agent_response_and_library_version():
+    client = make_client()
+    agent = next(a for a in client.get("/api/agents").json() if a["mode"] == "vulnerable")
+    run = client.post("/api/runs", json={"agent_id": agent["id"]}).json()
+    report = client.get(f"/api/runs/{run['id']}/report").text
+    assert "Agent response:" in report
+    assert "Scenario library: v" in report
+
+
+def test_dashboard_and_static_assets_are_served():
+    client = make_client()
+    assert "AEGIS" in client.get("/").text
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/styles.css").status_code == 200

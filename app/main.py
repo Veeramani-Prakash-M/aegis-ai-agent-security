@@ -7,18 +7,19 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .database import Base, build_database, get_session
-from .engine import evaluate_agent
+from .engine import LIBRARY_VERSION, evaluate_agent
 from .models import Agent, EvaluationRun
 from .scenarios import SCENARIOS, get_scenarios
 from .schemas import AgentCreate, EvaluationCreate
 
 STATIC_DIR = Path(__file__).parent / "static"
+APP_VERSION = "1.1.0"
 
 
 def iso(dt):
@@ -82,7 +83,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     app = FastAPI(
         title="AEGIS API",
-        version="1.0.0",
+        version=APP_VERSION,
         description="Synthetic AI-agent security evaluation API. Only evaluates the included demo agent profiles.",
     )
     app.state.session_factory = session_factory
@@ -97,12 +98,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "service": "AEGIS API", "version": "1.0.0"}
+        return {"status": "ok", "service": "AEGIS API", "version": APP_VERSION, "scenario_library": LIBRARY_VERSION}
 
     @app.get("/api/overview")
     def overview(db: Session = Depends(db_dependency)):
         agents = db.scalars(select(Agent).order_by(Agent.id)).all()
-        runs = db.scalars(select(EvaluationRun).order_by(EvaluationRun.created_at.desc()).limit(8)).all()
+        runs = db.scalars(select(EvaluationRun).order_by(EvaluationRun.id.desc()).limit(8)).all()
         all_runs = db.scalars(select(EvaluationRun)).all()
         average = round(sum(r.score for r in all_runs) / len(all_runs), 1) if all_runs else None
         return {
@@ -125,6 +126,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
         db.commit()
         db.refresh(agent)
         return serialize_agent(agent)
+
+    @app.delete("/api/agents/{agent_id}", status_code=204)
+    def delete_agent(agent_id: int, db: Session = Depends(db_dependency)):
+        agent = db.get(Agent, agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        db.execute(delete(EvaluationRun).where(EvaluationRun.agent_id == agent_id))
+        db.delete(agent)
+        db.commit()
+        return Response(status_code=204)
 
     @app.get("/api/scenarios")
     def list_scenarios():
@@ -161,10 +172,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return serialize_run(run)
 
     @app.get("/api/runs")
-    def list_runs(limit: int = 30, db: Session = Depends(db_dependency)):
+    def list_runs(limit: int = 30, agent_id: int | None = None, db: Session = Depends(db_dependency)):
         limit = max(1, min(limit, 100))
-        runs = db.scalars(select(EvaluationRun).order_by(EvaluationRun.created_at.desc()).limit(limit)).all()
-        return [serialize_run(run) for run in runs]
+        query = select(EvaluationRun).order_by(EvaluationRun.id.desc()).limit(limit)
+        if agent_id is not None:
+            query = query.where(EvaluationRun.agent_id == agent_id)
+        return [serialize_run(run) for run in db.scalars(query).all()]
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: int, db: Session = Depends(db_dependency)):
@@ -183,15 +196,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
         lines = [
             f"# AEGIS Security Evaluation Report — Run #{run.id}",
             "",
-            f"- Agent: {run.agent.name}",
+            f"- Agent: {run.agent.name if run.agent else 'Unknown agent'}",
             f"- Created: {iso(run.created_at)}",
             f"- Security score: {run.score}/100 (internal demo metric; not a certification)",
             f"- Attack success rate: {run.attack_success_rate}%",
             f"- Scenarios: {run.total} | Blocked: {run.blocked} | Vulnerable: {run.vulnerable}",
+            f"- Scenario library: v{metrics.get('library_version', 'unknown')}",
             "",
             "## Metric summary",
         ]
         for key, value in metrics.items():
+            if key == "library_version":
+                continue
             lines.append(f"- {key.replace('_', ' ').title()}: {value}")
         lines.extend(["", "## Findings", ""])
         for result in results:
@@ -201,6 +217,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 f"- Attack: {result['attack_summary']}",
                 f"- Expected: {result['expected_behavior']}",
                 f"- Observed: {result['observed_behavior']}",
+                f"- Agent response: `{result.get('agent_response', '')}`",
                 f"- Remediation: {result['remediation']}",
                 f"- Evidence: {result['evidence']}",
                 "",
